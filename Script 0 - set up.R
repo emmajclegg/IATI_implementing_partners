@@ -1,8 +1,12 @@
 
 ### Set end of quarter data for update ----
 
-quarter_end_date <- as.Date("2021-12-31")
+quarter_end_date <- as.Date("2025-03-31")
 
+### Set authentication
+file_path <- "token.txt"
+API_KEY = readLines(file_path)
+authentication = add_headers(`Ocp-Apim-Subscription-Key` = API_KEY)
 
 ### Check and install packages ----
 
@@ -64,53 +68,13 @@ library(testthat)
 
 ### Read in reference data ----
 
-# 1) GRID research institution lookup
-grid_institutes <- read.csv("Inputs/GRID tables/institutes.csv") %>% 
-  select(grid_id, name) %>% 
-  mutate(name = str_to_lower(name)) %>% 
-  unique()  %>% 
-  # Remove common organisation names
-  filter(!(name %in% c("ministry of health", "ministry of public health")))
-
-grid_addresses <- read.csv("Inputs/GRID tables/addresses.csv") %>% 
-  select(grid_id, country, country_code) %>% 
-  unique()
-
-grid_aliases <- read.csv("Inputs/GRID tables/aliases.csv")
-
 # Country names
 countries <- rev(countrycode::codelist$country.name.en)   # reverse to list "Nigeria" before "Niger" for later string detection
 countries_string <- paste0(str_to_lower(countries), collapse = "|")
 
-
 # 2) DAC country lookup and Tableau accepted country list
 dac_lookup <- read_xlsx("Inputs/Country lookup - Tableau and DAC Income Group.xlsx") %>% 
   mutate(country_name = str_to_lower(country_name))
-
-
-
-### Input data ----
-
-# FCDO partner IATI activities (to add manually as not linked) 
-unlinked_partner_iati_activity_ids <- read_xlsx("Inputs/IATI partner activities.xlsx", sheet=1)
-
-# UKRI non GCRF/Newton project IDs
-ukri_ooda_projects_ids <- read_xlsx("Inputs/UKRI non GCRF-Newton projects.xlsx", sheet=1) %>% 
-  mutate(recipient_country = NA_character_)
-
-# Wellcome ODA grant data
-wellcome_grants <- read_excel("Inputs/wellcome grants.xlsx")
-
-# BEIS RODA GCRF/Newton extracts
-roda_extract_gcrf <- read_excel("Inputs/BEIS_GCRF_MODARI_Q3_2021-2022.xlsx", sheet = 1)
-roda_extract_newton <- read_excel("Inputs/BEIS_NF_MODARI_Q3_2021-2022.xlsx", sheet = 1)
-
-# DHSC Global Health Security projects
-dhsc_ghs_projects <- read_excel("Inputs/MODARI award data - GHS (GAMRIF and UKVN).xlsx", sheet = 1)
-
-# DHSC/FCDO core contribution programmes/components 
-# (these are out of scope of IATI)
-gov_non_iati_programmes <- read_excel("Inputs/FCDO core contribution programmes (with beneficiary countries).xlsx") 
 
 
 ### Functions -----
@@ -141,6 +105,70 @@ org_country_lookup <- function(org_name) {
 
 
 ### IATI ###
+
+countrycode_list <- read.csv("https://iatistandard.org/reference_downloads/203/codelists/downloads/clv3/csv/en/Country.csv")
+regioncode_list <- read.csv("https://iatistandard.org/reference_downloads/203/codelists/downloads/clv3/csv/en/Region.csv")
+sector_list <- read.csv("https://iatistandard.org/reference_downloads/203/codelists/downloads/clv3/csv/en/Sector.csv")
+
+
+iati_activity_extract <- function(page, activity_id) {
+  
+  # Reformat ID if it contains spaces (for API)
+  rows = 1000
+  start <- (page - 1) * rows
+  path <- paste0('https://api.iatistandard.org/datastore/activity/select?',
+                 'q=iati_identifier:"',
+                 activity_id,
+                 '"&wt=json',
+                 '&rows=',rows,
+                 '&start=',start,
+                 "&fl=iati_identifier,other_identifier*,reporting_org*,location*,sector_code*,default_flow_type*,recipient_country_code,recipient_region_code,activity_date*,budget*,policy_marker*,activity_status*,hierarchy*,title*,description*,participating_org*,related_activity*,tag*")
+  request <- GET(url = path, authentication)
+  response <- content(request, as = "text", encoding = "UTF-8")
+  response <- fromJSON(response, flatten = TRUE) 
+  new_data <- response$response$docs
+  numb_data <- response$response$numFound
+  
+  if(start >= numb_data){
+    return(NULL)
+  } 
+  
+  return(new_data)
+}
+
+result <- iati_activity_extract(1, "CA-CRA_ACR-869974816-4901-4902")
+
+# Function to extract IATI activity IDs for a specified org code
+
+org_activity_extract <- function(page, org_code) {
+  rows = 1000
+  start <- (page - 1) * rows
+  path <- paste0('https://api.iatistandard.org/datastore/activity/select?',
+                 'q=reporting_org_ref:"',
+                 org_code,
+                 '"&wt=json',
+                 '&rows=',rows,
+                 '&start=',start,
+                 "&fl=iati_identifier,other_identifier*,activity_date*,reporting_org*,sector_code*,location*,recipient_country_code,recipient_region_code,default_flow_type*,budget*,policy_marker*,activity_status*,hierarchy*,title*,description*,participating_org*,related_activity*,tag*")
+  request <- GET(url = path, authentication)
+  message(request$status_code)
+  response <- content(request, as = "text", encoding = "UTF-8")
+  response <- fromJSON(response, flatten = TRUE) 
+  new_data <- response$response$docs
+  numb_data <- response$response$numFound
+  
+  if(start >= numb_data){
+    return(NULL)
+  }
+  return(new_data)
+  
+}
+
+result2 <- org_activity_extract(1, "NL-KVK-70292361")
+
+
+---------------------
+
 
 # Function to match IATI country code to name 
 country_code_to_name <- function(country_code) {
@@ -275,207 +303,6 @@ extract_iati_activity_name <- function(activity_id) {
   
   return(result)
   
-}
-
-
-### UKRI ###
-
-# 1 - Function to extract project IDs by fund name (GCRF/Newton)
-extract_ukri_projects_by_fund <- function(page, fund) {
-  
-  path <- paste0("https://gtr.ukri.org:443/gtr/api/projects?q=",
-                 fund, "&f=pro.rcukp&p=", page, "&s=100")
-  request <- GET(url = path)
-  response <- content(request, as = "text", encoding = "UTF-8")
-  response <- fromJSON(response, flatten = TRUE) 
-  projects <- response$project
-  
-  return(projects)
-}
-
-
-# 2 - Function to extract staff organisation
-
-extract_staff_org <- function(staff_data, person_id) {
-  
-  path <- paste0("http://gtr.ukri.org/person/", person_id)
-  request <- GET(url = path)
-  response <- content(request, as = "text", encoding = "UTF-8")
-  response <- fromJSON(response, flatten = TRUE) 
-  
-  person_current_org_name <- ((response$personOverview)$organisation)$name
-  person_current_org_id <- ((response$personOverview)$organisation)$id
-  
-  staff_org_data <- rbind(staff_data, data.frame(person_id, 
-                                                 person_current_org_name,
-                                                 person_current_org_id))
-  return(staff_org_data)
-}
-
-
-# 3 - Function to extract country from organisation ID
-# (checking GRID database as well as UKRI)
-
-extract_org_country <- function(org_id) {
-  
-  path <- paste0("http://gtr.ukri.org/organisation/", org_id)
-  request <- GET(url = path)
-  response <- content(request, as = "text", encoding = "UTF-8")
-  response <- fromJSON(response, flatten = TRUE) 
-  org_name <- ((response$organisationOverview)$organisation)$name
-  
-  # Look up country from UKRI GtR 
-  org_address <- ((response$organisationOverview)$organisation)$address
-  
-  if("country" %in% names(org_address)) {
-    org_country_ukri <- org_address$country
-    
-  } else {
-    org_country_ukri <- "Unknown"
-  }
-  
-  # If unknown use other generic lookup function
-  if(org_country_ukri == "Unknown") {
-    org_country <- org_country_lookup(org_name)
-    
-  } else {
-    org_country <- org_country_ukri
-  }
-  
-  return(org_country)
-}
-
-
-# 4 - Master function to extract UKRI project data by ID
-
-extract_ukri_projects_by_id <- function(id) {
-  
-  path <- paste0("http://gtr.ukri.org/projects?ref=", id)
-  request <- GET(url = path)
-  response <- content(request, as = "text", encoding = "UTF-8")
-  response <- fromJSON(response, flatten = TRUE) 
-  
-  # extract project data and last refresh date
-  data <- response$projectOverview
-  
-  last_updated <- (response$lastRefreshDate)$lastRefreshDate %>% 
-    str_replace_all("Data last updated:  ", "") %>% 
-    as.Date(format = "%d %b %Y")
-  
-  # Create blank org table for output
-  org_table <- data.frame()
-  
-  if(length(data) > 0) {
-    
-    # Unlist first level
-    data <- data$projectComposition
-    
-    # Extract project, lead org and co-investigator staff ids
-    projects <- data$project
-    lead_org <- data$leadResearchOrganisation
-    person_roles <- data$personRole
-    
-    # Extract staff information (if applicable)
-    if(length(person_roles) > 0) {                        # checks length of list
-      
-      person_roles <- person_roles %>% 
-        unnest(col = role) %>% 
-        filter(name == "CO_INVESTIGATOR") %>% 
-        select(id)
-      
-      if(nrow(person_roles) > 0) {                # checks no. of rows in dataframe
-        
-        # Extract current organisation of staff
-        staff_org_data <- data.frame()
-        
-        for (person_id in person_roles$id) {
-          staff_org_data <- extract_staff_org(staff_org_data, person_id)
-        }
-        
-        # Join on country of organisation
-        staff_org_country_data <- staff_org_data %>% 
-          mutate(person_current_org_country = map(person_current_org_id, extract_org_country)) %>%
-          unnest(col = person_current_org_country) 
-        
-        # Collapse staff partner orgs and countries into single records
-        if(length(staff_org_country_data$person_current_org_name) > 0) {
-          
-          # Keep staff org names and countries to output
-          org_table <- staff_org_country_data %>% 
-                  mutate(project_id = projects[["grantReference"]],
-                         organisation_role = 2) %>% 
-                  select(project_id,
-                         organisation_role,
-                         organisation_name = person_current_org_name,
-                         organisation_country = person_current_org_country)
-          
-          # Collapse org names and locations
-          staff_org_names <- staff_org_country_data %>% 
-            select(person_current_org_name) %>% 
-            unique() %>% 
-            summarise(partner_name = paste(person_current_org_name, collapse = ", "))
-          
-          staff_org_countries <- staff_org_country_data %>% 
-            select(person_current_org_country) %>% 
-            filter(person_current_org_country != "Unknown") %>% 
-            unique() %>% 
-            summarise(partner_country = paste(person_current_org_country, collapse = ", "))
-          
-          org_roles_summarised <- cbind(staff_org_names, staff_org_countries)
-          
-        }
-      }
-    }
-    
-    # Start constructing project data frame
-    project_data <- data.frame(
-      title = projects[["title"]],
-      status = projects[["status"]],
-      gtr_id = projects[["grantReference"]],
-      fund = projects[["fund"]],
-      abstract = projects[["abstractText"]],
-      lead_org_name = lead_org[["name"]],
-      last_updated = as.Date(last_updated))
-    
-    # Add country of lead org
-    project_data <- project_data %>% 
-      mutate(lead_org_country = map(lead_org[["id"]], extract_org_country)) %>%
-      unnest(col = lead_org_country) 
-    
-    # Attach partner org info
-    if(exists("org_roles_summarised")) {
-      project_data <- project_data %>% 
-        mutate(partner_org_name = org_roles_summarised$partner_name,
-               partner_org_country = org_roles_summarised$partner_country)
-    } else {
-      project_data <- project_data %>% 
-        mutate(partner_org_name = NA_character_,
-               partner_org_country = NA_character_)
-    }
-    
-    # Write lead org name and country to file
-    org_table <- org_table %>% 
-      rbind(select(project_data,
-                   project_id = gtr_id,
-                   organisation_name = lead_org_name,
-                   organisation_country = lead_org_country) %>% 
-            mutate(organisation_role = 1))
-    
-    # Keep desired fields
-    project_data <- project_data %>% 
-      select(gtr_id, title, abstract, fund.start, fund.end, amount = fund.valuePounds, 
-             extending_org = fund.funder.name,
-             lead_org_name, lead_org_country, partner_org_name, partner_org_country, 
-             status, last_updated) 
-    
-    
-  } else {
-    
-    # If no data available to extract, return empty dataframe
-    project_data <- data.frame()
-  }
-  
-  return(list(project_data, org_table))
 }
 
 

@@ -1,33 +1,10 @@
 # --------------------------------------------------------------- #
 # Script 1
-# Extract ODA research & innovation (R&I) activity information from 
-# UK government departments' IATI data 
+# Extract UK government departments' IATI data 
 # --------------------------------------------------------------- #
 
-# 1) Extract list of OECD research sector codes from IATI ------
 
-# Prepare results data frame and counters
-sector_list <- data.frame()
-new_rows <- 0
-page <- 1
-
-# Run extraction, stopping when no new sector codes returned
-while (page == 1 | new_rows > 0) {
-  x <- nrow(sector_list)
-  sector_list <- sector_extract(page, sector_list)
-  page <- page + 1
-  y <- nrow(sector_list)
-  new_rows = y - x
-}
-
-# Keep research/innovation/tech codes only (11)
-sector_list_research <- sector_list %>% 
-  filter(str_detect(str_to_lower(name), "research") | 
-           str_detect(str_to_lower(name), "higher education") |
-           str_detect(str_to_lower(name), "information and communication technology"))
-
-
-# 2) Extract ALL activities from relevant UK government departments --------
+# 1) Extract all IATI activities from UK government departments --------
 
 # Define UK government department IATI org IDs
 organisation_codes <- c("GB-GOV-1",  # FCDO
@@ -49,7 +26,7 @@ for (org in organisation_codes) {
   while (page == 1 | new_rows > 0) {
     print(paste0(org, "-", page))
     x <- nrow(uk_gov_list_final)
-    uk_gov_list_final <- org_activity_extract(page, org, uk_gov_list_final)
+    uk_gov_list_final <- org_activity_extract(page, org)
     page <- page + 1
     y <- nrow(uk_gov_list_final)
     new_rows = y - x

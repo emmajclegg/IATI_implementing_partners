@@ -6,43 +6,34 @@
 
 # 1) Extract linked R&I partner IATI activities -----
 
-# Read in list of tagged RI UK gov funder activities from Script 1
-ri_iati_activities <- readRDS(file = "Outputs/ri_iati_activities.rds")
-
+# Read in list of UK gov funder activities from Script 1
+uk_gov_list <- readRDS(file = "Outputs/uk_gov_list.rds")
 
 # Extract linked partner activity IDs ----
 
-transactions_dataset <- data.frame()
+linked_activities <- data.frame()
 
-for (id in ri_iati_activities$iati_identifier) {
+# Extract activity data for each government department
+for (act in uk_gov_list$iati_identifier) {
   new_rows <- 0
   page <- 1
   
   while (page == 1 | new_rows > 0) {
-  
-    print(paste0(id, "-", page))
-    x <- nrow(transactions_dataset)
+    print(paste0(act, "-", page))
+    x <- nrow(linked_activities)
+    new_activities <- transactions_extract(page, act)
     
-    path <- paste0("https://iati.cloud/api/transactions/?provider_activity=", id, "&format=json&page_size=20&page=", page)
-    request <- GET(url = path)
-    response <- content(request, as = "text", encoding = "UTF-8")
-    response <- fromJSON(response, flatten = TRUE) 
-    new_data <- response$results 
-  
-  if (length(new_data) > 0) {
-    new_data <- new_data %>% 
-      mutate(activity_id = id) %>% 
-      unique()
-  }
-  
-  transactions_dataset <- rbind(transactions_dataset, new_data)
-  
-  page <- page + 1
-  y <- nrow(transactions_dataset)
-  new_rows = y - x
+    if (nrow(new_activities) > 0) {
+      linked_activities <- rbind(linked_activities, new_activities)
+    }
+    
+    page <- page + 1
+    y <- nrow(linked_activities)
+    print(y)
+    new_rows = y - x
+    print(new_rows)
   }
 }
-
 
 
 # 3) Keep partner activity IDs only (not duplicate gov funder ones) ----

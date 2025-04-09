@@ -7,16 +7,10 @@
 # 1) Extract all IATI activities from UK government departments --------
 
 # Define UK government department IATI org IDs
-organisation_codes <- c("GB-GOV-1",  # FCDO
-                        "GB-GOV-7",  # Defra
-                        "GB-GOV-10", # DHSC
-                        "GB-GOV-12", # DCMS
-                        "GB-GOV-13", # BEIS
-                        "GB-GOV-15", # DIT
-                        "GB-GOV-50") # Prosperity Fund
+organisation_codes <- c("GB-GOV-1")
 
 # Prepare output data frame
-uk_gov_list_final <- data.frame()
+uk_gov_list <- data.frame()
 
 # Extract activity data for each government department
 for (org in organisation_codes) {
@@ -25,49 +19,21 @@ for (org in organisation_codes) {
 
   while (page == 1 | new_rows > 0) {
     print(paste0(org, "-", page))
-    x <- nrow(uk_gov_list_final)
-    uk_gov_list_final <- org_activity_extract(page, org)
+    x <- nrow(uk_gov_list)
+    print(x)
+    new_activities <- org_activity_extract(page, org)
+    uk_gov_list <- rbind(uk_gov_list, new_activities)
     page <- page + 1
-    y <- nrow(uk_gov_list_final)
+    y <- nrow(uk_gov_list)
+    print(y)
     new_rows = y - x
+    print(new_rows)
   }
 }
 
 # Save output data
-saveRDS(uk_gov_list_final, file = "Outputs/uk_gov_list_final.rds")
-# uk_gov_list_final <- readRDS(file = "Outputs/uk_gov_list_final.rds")
-
-
-# 3) Filter to keep ODA R&I activities only ------
-# (via the IATI "RI" tag field eventually - not all gov departments use this yet)
-
-# Unnest tags
-uk_gov_ri_programmes <- uk_gov_list_final %>%
-  filter(lengths(tag) != 0) %>%
-  unnest(col = tag) %>% 
-  select(-narrative, -vocabulary_uri, -vocabulary.code, -vocabulary.name)
-
-# Save list of tagged research & innovation activities
-ri_iati_activities <- uk_gov_ri_programmes %>% 
-  filter(code == "RI") %>% 
-  select(iati_identifier) %>% 
-  unique() %>% 
-  mutate(tag = "RI")
-
-saveRDS(ri_iati_activities, file = "Outputs/ri_iati_activities.rds")
-# ri_iati_activities <- readRDS(file = "Outputs/ri_iati_activities.rds")
-
-
-# Filter list of gov department IATI activities 
-
-uk_gov_list_filtered <- uk_gov_list_final %>% 
-  select(-tag) %>% 
-  left_join(ri_iati_activities, by = "iati_identifier") %>% 
-  filter((reporting_org.ref %in% c("GB-GOV-7", "GB-GOV-10", "GB-GOV-15", "GB-GOV-50") | # Include everything from these gov departments
-          str_detect(iati_identifier, "GB-GOV-3") |                               # Include everything ex-FCDO
-          !is.na(tag) |                                                           # Include tagged R&I programmes
-          str_detect(iati_identifier, "NEWT|Newton|NF|GCRF|NIHR|GAMRIF|UKVN")),   # Include BEIS Newton/GCRF and DHSC GHS/GHR activities
-          default_flow_type == "ODA")                                             # Restrict to ODA funding only
+saveRDS(uk_gov_list, file = "Outputs/uk_gov_list.rds")
+# uk_gov_list <- readRDS(file = "Outputs/uk_gov_list.rds")
 
 
 # 4) Unnest activity information -----------

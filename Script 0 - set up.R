@@ -1,11 +1,5 @@
 
-### Set end of quarter data for update ----
-
-quarter_end_date <- as.Date("2025-03-31")
-
-
 ### Check and install packages ----
-
 packages <- data.frame(installed.packages())
 
 if (!("jsonlite" %in% packages$Package)) {
@@ -63,49 +57,61 @@ library(countrycode)
 library(testthat)
 
 ### Set authentication
-file_path <- "token.txt"
-API_KEY = readLines(file_path)
-authentication = add_headers(`Ocp-Apim-Subscription-Key` = API_KEY)
-
+load_dot_env()
+api_key = Sys.getenv("API_KEY")
+authentication = add_headers(`Ocp-Apim-Subscription-Key` = api_key)
 
 ### IATI functions ### ----
 
-countrycode_list <- read.csv("https://iatistandard.org/reference_downloads/203/codelists/downloads/clv3/csv/en/Country.csv")
-regioncode_list <- read.csv("https://iatistandard.org/reference_downloads/203/codelists/downloads/clv3/csv/en/Region.csv")
-sector_list <- read.csv("https://iatistandard.org/reference_downloads/203/codelists/downloads/clv3/csv/en/Sector.csv")
+## 1. Function to extract activity data for a given activity identifier
+
+# As flat JSON
+activity_extract_flat <- function(activity_id) {
+
+path <- paste0(
+  'https://api.iatistandard.org/datastore/activity/select?',
+  'q=iati_identifier:"',
+  activity_id,
+  '"&wt=json',
+  "&fl=other_identifier*,reporting_org*,location*,default_flow_type*,activity_date*,budget*,policy_marker*,activity_status*,hierarchy*,title*,description*,participating_org*,related_activity*",
+  "&wt=json"
+)
+request <- GET(url = path, authentication)
+response <- content(request, as = "text", encoding = "UTF-8")
+response <- fromJSON(response, flatten = TRUE) 
+activity_json <- response$response$docs
+
+return(activity_json)
+
+}
 
 
-iati_activity_extract <- function(activity_id) {
+# As hierarchical JSON
+activity_extract_hierarchy <- function(activity_id) {
   
-  # Reformat ID if it contains spaces (for API)
-  rows <- 1000
-  page <- 1
-  start <- (page - 1) * rows
-  path <- paste0('https://api.iatistandard.org/datastore/activity/select?',
-                 'q=iati_identifier:"',
-                 activity_id,
-                 '"&wt=json',
-                 '&rows=',rows,
-                 '&start=',start,
-                 "&fl=iati_identifier,other_identifier*,reporting_org*,location*,sector_code*,default_flow_type*,recipient_country_code,recipient_region_code,activity_date*,budget*,policy_marker*,activity_status*,hierarchy*,title*,description*,participating_org*,related_activity*,tag*")
+  path <- paste0(
+    'https://api.iatistandard.org/datastore/activity/iati_json?',
+    'q=iati_identifier:"',activity_id,'"'
+  )
   request <- GET(url = path, authentication)
   response <- content(request, as = "text", encoding = "UTF-8")
   response <- fromJSON(response, flatten = TRUE) 
-  new_data <- response$response$docs
-  numb_data <- response$response$numFound
+  activity_json <- response$response$docs$`iati_json.iati-activity`[[1]]
   
-  if(start >= numb_data){
-    return(NULL)
-  } 
+  return(activity_json)
   
-  return(new_data)
 }
 
-debug(iati_activity_extract)
-result1 <- iati_activity_extract("CA-CRA_ACR-869974816-4901-4902")
+
+# Tests
+id <- "GB-1-203166-103"
+result_flat <- activity_extract_flat(id)
+result_hierarchy <- activity_extract_hierarchy(id)
 
 
-# Function to extract IATI activity IDs for a specified org code
+
+
+## 2. Function to return a list of the activities from a specified reporting org
 
 org_activity_extract <- function(page, org_code) {
   rows = 1000
@@ -116,9 +122,8 @@ org_activity_extract <- function(page, org_code) {
                  '"&wt=json',
                  '&rows=',rows,
                  '&start=',start,
-                 "&fl=iati_identifier,other_identifier*,activity_date*,reporting_org*,sector_code*,location*,recipient_country_code,recipient_region_code,default_flow_type*,budget*,policy_marker*,activity_status*,hierarchy*,title*,description*,participating_org*,related_activity*,tag*")
+                 "&fl=iati_identifier,activity_date*,reporting_org*,activity_status*,title*,description*")
   request <- GET(url = path, authentication)
-  message(request$status_code)
   response <- content(request, as = "text", encoding = "UTF-8")
   response <- fromJSON(response, flatten = TRUE) 
   new_data <- response$response$docs
@@ -127,87 +132,45 @@ org_activity_extract <- function(page, org_code) {
   if(start >= numb_data){
     return(NULL)
   }
+  
   return(new_data)
   
 }
 
-org_activity_extract <- function(page, org_code) {
-  rows <- 1000
+# Tests
+org_id <- "GB-GOV-7"
+result_orgs <- org_activity_extract(1, org_id)
+
+
+## 3. Function to extract transactions for a specified IATI activity ID
+transactions_extract <- function(page, activity_id) {
+  
+  rows = 1000
   start <- (page - 1) * rows
-  path <- paste0('https://api.iatistandard.org/datastore/activity/select?',
-                 'q=reporting_org_ref:"',
-                 org_code,
-                 '"&wt=json',
-                 '&rows=',rows,
-                 '&start=',start,
-                 "&fl=iati_identifier,other_identifier*,activity_date*,reporting_org*,sector_code*,location*,recipient_country_code,recipient_region_code,default_flow_type*,budget*,policy_marker*,activity_status*,hierarchy*,title*,description*,participating_org*,related_activity*,tag*")
+  path  <- paste0('https://api.iatistandard.org/datastore/transaction/select?',
+                  'q=transaction_provider_org_provider_activity_id:"',
+                  activity_id,
+                  '"&wt=json',
+                  '&rows=',rows,
+                  '&start=',start,
+                  "&fl=iati_identifier,transaction_provider_org_provider_activity_id")
   request <- GET(url = path, authentication)
-  message(request$status_code)
   response <- content(request, as = "text", encoding = "UTF-8")
   response <- fromJSON(response, flatten = TRUE) 
-  new_data <- response$response$docs
+  new_data <- unique(response$response$docs)
   numb_data <- response$response$numFound
   
   if(start >= numb_data){
     return(NULL)
-  }
+  } 
+  
   return(new_data)
-  
 }
 
-debug(org_activity_extract)
-result2 <- org_activity_extract(1, "GB-GOV-1")
+id <- "GB-1-203166-103"
+id <- "GB-GOV-3-CSSF-01-000005"
+activity_transactions <- transactions_extract(1,id)
 
-
-# Function to extract transactions for a specified IATI activity ID
-transactions_extract <- function(activity_id, page, output_data) {
-  
-  # Reformat ID if it contains spaces (for API)
-  activity_id <- str_replace_all(activity_id, " ", "%20")
-  
-  path <- paste0("https://iati.cloud/api/transactions/?iati_identifier=", activity_id, "&fields=value,transaction_date,description,currency,receiver_organisation&format=json&page_size=20&page=", page)
-  request <- GET(url = path)
-  response <- content(request, as = "text", encoding = "UTF-8")
-  response <- fromJSON(response, flatten = TRUE) 
-  new_data <- response$results
-  
-  if(length(new_data) > 0) {
-    output <- plyr::rbind.fill(output_data, new_data)
-  } else {
-    output <- output_data
-  }
-  
-  return(output)
-}
-
-
-# Function to extract activity names from an IATI activity ID
-
-extract_iati_activity_name <- function(activity_id) {
-  
-  # Reformat ID if it contains spaces (for API)
-  activity_id <- str_replace_all(activity_id, " ", "%20")
-  
-  path <- paste0("https://iati.cloud/api/activities/?iati_identifier=", activity_id, "&format=json&fields=title")
-  request <- GET(url = path)
-  response <- content(request, as = "text", encoding = "UTF-8")
-  response <- fromJSON(response, flatten = TRUE) 
-  new_data <- response$results 
-  
-  if(length(new_data) > 0) {
-    new_data <- new_data %>% 
-      unnest(col = title.narrative) %>% 
-      select(funder_iati_id = iati_identifier, funder_programme = text)
-    
-    result <- new_data$funder_programme
-    
-  } else {
-    result <- NA_character_
-  }
-  
-  return(result)
-  
-}
 
 
 

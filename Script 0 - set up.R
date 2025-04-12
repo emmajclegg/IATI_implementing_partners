@@ -41,6 +41,9 @@ if (!("countrycode" %in% packages$Package)) {
 if (!("testthat" %in% packages$Package)) {
   install.packages("testthat")
 } 
+if (!("dotenv" %in% packages$Package)) {
+  install.packages("dotenv")
+} 
 
 library(jsonlite)
 library(httr)
@@ -55,6 +58,7 @@ library(DBI)
 library(odbc)
 library(countrycode)
 library(testthat)
+library(dotenv)
 
 ### Set authentication
 load_dot_env()
@@ -103,13 +107,6 @@ activity_extract_hierarchy <- function(activity_id) {
 }
 
 
-# Tests
-id <- "GB-1-203166-103"
-result_flat <- activity_extract_flat(id)
-result_hierarchy <- activity_extract_hierarchy(id)
-
-
-
 
 ## 2. Function to return a list of the activities from a specified reporting org
 
@@ -137,40 +134,33 @@ org_activity_extract <- function(page, org_code) {
   
 }
 
-# Tests
-org_id <- "GB-GOV-7"
-result_orgs <- org_activity_extract(1, org_id)
 
-
-## 3. Function to extract transactions for a specified IATI activity ID
-transactions_extract <- function(page, activity_id) {
+## 3. Function to extract activities with a given provider activity id in their transactions
+linked_activity_extract <- function(activity_id) {
   
-  rows = 1000
-  start <- (page - 1) * rows
   path  <- paste0('https://api.iatistandard.org/datastore/transaction/select?',
                   'q=transaction_provider_org_provider_activity_id:"',
                   activity_id,
                   '"&wt=json',
-                  '&rows=',rows,
-                  '&start=',start,
                   "&fl=iati_identifier,transaction_provider_org_provider_activity_id")
   request <- GET(url = path, authentication)
   response <- content(request, as = "text", encoding = "UTF-8")
   response <- fromJSON(response, flatten = TRUE) 
   new_data <- unique(response$response$docs)
-  numb_data <- response$response$numFound
-  
-  if(start >= numb_data){
-    return(NULL)
-  } 
   
   return(new_data)
 }
 
-id <- "GB-1-203166-103"
-id <- "GB-GOV-3-CSSF-01-000005"
-activity_transactions <- transactions_extract(1,id)
+# Tests
+activity_id <- "GB-1-203166-103"
+org_id <- "GB-GOV-7"
 
+result_flat <- activity_extract_flat(activity_id)
+result_hierarchy <- activity_extract_hierarchy(activity_id)
+result_orgs <- org_activity_extract(1, org_id)
+result_linked <- linked_activity_extract(activity_id)
 
+# Clear environment
+rm(result_hierarchy, result_flat, result_orgs, result_linked)
 
 

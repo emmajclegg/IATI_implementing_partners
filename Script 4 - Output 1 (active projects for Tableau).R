@@ -54,16 +54,6 @@ tableau_projects_tidied <- tableau_projects %>%
       mutate(funder_programme = if_else(extending_org == "Wellcome Trust", subject, funder_programme))
 
 
-# 4) Apply manual exclusions/rules ----------------------------
-
-# TEMPORARY ***
-# Remove IDRC DHSC IATI data (this has been provided instead by spreadsheet)
-tableau_projects_tidied <- tableau_projects_tidied %>% 
-  filter(!(Funder == "Department of Health and Social Care" & 
-           extending_org == "International Development Research Centre" &
-           is.na(amount))
-         )
-
 # 5) Write data --------------------------------
 
 # Restrict to active projects for Tableau
@@ -71,18 +61,6 @@ tableau_projects_tidied <- tableau_projects_tidied %>%
   filter(status %in% c("Active", "Unknown")) %>% 
   unique()
 
-tableau_projects_tidied <- tableau_projects_tidied %>% 
-  mutate(Fund = case_when(
-    Fund == "Global Challenges Research Fund (GCRF)" ~ "BEIS - Global Challenges Research Fund (GCRF)",
-    Fund == "Newton Fund" ~ "BEIS - Newton Fund",
-    Fund == "Chevening Scholarships" ~ "FCDO - Chevening Scholarships",
-    Fund == "Global Health Research - Partnerships" ~ "DHSC - Global Health Research - Partnerships",
-    Fund == "Global Health Research - Programmes" ~ "DHSC - Global Health Research - Programmes",
-    Fund == "Global Health Security - GAMRIF" ~ "DHSC - Global Health Security - GAMRIF",
-    Fund == "Global Health Security - UK Vaccine Network" ~ "DHSC - Global Health Security - UK Vaccine Network",
-    Fund == "International Climate Finance (ICF)" ~ "BEIS - International Climate Finance (ICF)",        
-    TRUE ~ Fund
-  ))
 
 # Write to RDS 
 saveRDS(tableau_projects_tidied, "Outputs/tableau_projects_tidied.rds")
@@ -92,7 +70,7 @@ saveRDS(tableau_projects_tidied, "Outputs/tableau_projects_tidied.rds")
 # Authorise googlesheets4 to view and manage sheets on EC Drive
 # (using saved authentication token in folder)
 
-ODA_RI_url <- "https://docs.google.com/spreadsheets/d/1ByVBWb3LNSoqAUzKlddd537DleQ-y9MINwY_SuuZEbY/edit#gid=2024786204"
+ODA_RI_url <- "https://docs.google.com/spreadsheets/d/1tuBKZIDZ19vsrXd_2t3cNdUGZ3jTdrh1/edit?gid=172953161#gid=172953161"
 results <- as_sheets_id(ODA_RI_url)
 
 results_sheet <- sheet_write(tableau_projects_tidied,
